@@ -1,6 +1,7 @@
 """Main script for running the project
 
-Run with `uvicorn app:app --host 0.0.0.0 --port 80`
+CD INTO DIRECTORY FIRST
+Run with `uvicorn main:app --reload`
 """
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status
@@ -42,7 +43,7 @@ class PlaylistsBase(BaseModel):
         # Also Empty???
 
 def get_db():
-        db = SessionLocal()
+        db = session_local()
         try:
                 yield db
         finally:
@@ -50,11 +51,14 @@ def get_db():
 
 db_dependency = Annotated[Session, Depends(get_db)]
 
-@app.post("/users/", status_code=status.HTTP_201_CREATED)
-async def create_user(user: ListenersBase, db: db_dependency):
-        db_user = models.User(**user.dict())
-        db.add(db_user)
+@app.post("/listeners/", status_code=status.HTTP_201_CREATED)
+async def create_listener(listener: ListenersBase, db: db_dependency):
+        db_listener = models.Listeners(**listener.dict())
+
+        db.add(db_listener)
         db.commit()
+
+
 
 """
 # Opens .html files for rendering in various pages.

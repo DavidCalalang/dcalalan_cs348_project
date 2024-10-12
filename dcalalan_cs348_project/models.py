@@ -33,7 +33,7 @@ class Listeners(Base):
     __tablename__ = 'listeners'
 
     user_id = Column(Integer, primary_key=True, index=True)
-    username = Column(String(50), unique=True)
+    username = Column(String, unique=True)
 
 class Tracks(Base):
     __tablename__ = 'tracks'
