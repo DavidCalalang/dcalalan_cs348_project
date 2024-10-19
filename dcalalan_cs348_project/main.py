@@ -58,6 +58,22 @@ async def create_listener(listener: ListenersBase, db: db_dependency):
         db.add(db_listener)
         db.commit()
 
+@app.get("/listeners/{user_id}", status_code=status.HTTP_200_OK)
+async def read_user(user_id: int, db:db_dependency):
+        user = db.query(models.Listeners).filter(models.Listeners.user_id == user_id).first()
+        if user is None:
+                raise HTTPException(status_code=404, detail="User not found")
+        else:
+                return user
+        
+@app.get("/all_listeners", status_code=status.HTTP_200_OK)
+async def list_all_users(db:db_dependency):
+        all_listeners = db.query(models.Listeners).all()
+
+        for listener in all_listeners:
+                print(listener.username)
+
+        return {"data": all_listeners}
 
 
 """
