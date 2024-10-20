@@ -41,6 +41,7 @@ class Tracks(Base):
     track_id = Column(Integer, primary_key=True, index=True)
     track_name = Column(String(50))
     album_id = Column(Integer, ForeignKey('albums.album_id'))
+    artist_id = Column(Integer, ForeignKey('artists.artist_id'))
     genre = Column(String(50), ForeignKey('genres.genre'))
 
 class Albums(Base):

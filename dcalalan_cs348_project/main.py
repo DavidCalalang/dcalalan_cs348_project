@@ -13,6 +13,7 @@ from typing import Annotated
 import models
 from database import engine, session_local
 from sqlalchemy.orm import Session
+import pandas as pd
 
 app = FastAPI()
 models.Base.metadata.create_all(bind=engine)
@@ -74,6 +75,35 @@ async def list_all_users(db:db_dependency):
                 print(listener.username)
 
         return {"data": all_listeners}
+
+@app.get("/all_artists", status_code=status.HTTP_200_OK)
+async def list_all_artists(db:db_dependency):
+        all_artists = db.query(models.Artists).all()
+
+        for artist in all_artists:
+                print(artist.artist_name)
+
+        return {"data": all_artists}
+
+@app.get("/all_tracks", status_code=status.HTTP_200_OK)
+async def list_all_tracks(db:db_dependency):
+        all_tracks = db.query(models.Tracks).all()
+
+        # Create an empty DataFrame with the desired columns
+        df = pd.DataFrame(columns=['track_id', 'track_name', 'album_id', 'artist_id', 'genre'])
+
+        track_dfs = [pd.DataFrame({'track_id': track.track_id,
+                                'track_name': track.track_name,
+                                'album_id': track.album_id,
+                                'artist_id': track.artist_id,
+                                'genre': track.genre}, index=[0]) for track in all_tracks]
+
+        df = pd.concat(track_dfs, ignore_index=True)
+
+        # To convert to table to show with html
+        print(df)
+
+        return {"data": all_tracks}
 
 
 """
