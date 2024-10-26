@@ -4,7 +4,7 @@ CD INTO DIRECTORY FIRST
 Run with `uvicorn main:app --reload`
 """
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -94,15 +94,36 @@ async def list_all_tracks(db:db_dependency):
 
         df = pd.concat(track_dfs, ignore_index=True)
 
-        # To convert to table to show with html
-        print(df)
-
         df.to_html('./html_files/basic.html', index=False)
 
-        with open('./html_files/main.html', 'r') as f:
-                test = f.read()
+        # Instantiate playlists tables as of now
+        all_playlists = db.query(models.Playlists).all()
 
-        return HTMLResponse(content=test, status_code=200)
+        if (not all_playlists):
+               playlist_df = pd.DataFrame(columns=['playlist_id', 'playlist_name', 'user_id'])
+        else:
+
+                # Create an empty DataFrame with the desired columns
+                playlist_df = pd.DataFrame(columns=['playlist_id', 'playlist_name', 'user_id'])
+
+                playlists_dfs = [pd.DataFrame({'playlist_id': playlist.playlist_id,
+                                        'playlist_name': playlist.playlist_name,
+                                        'user_id': playlist.user_id}, index=[0]) for playlist in all_playlists]
+
+                playlist_df = pd.concat(playlists_dfs, ignore_index=True)
+
+        playlist_df.to_html('./html_files/playlist.html', index=False)
+
+        try:
+                with open('./html_files/root.html', 'r') as f:
+                        root = f.read()
+
+                return HTMLResponse(content=root, status_code=200)
+        
+        except FileNotFoundError as e:
+                raise HTTPException(status_code=404, detail=f"File not found: {str(e)}")
+        except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Error reading files: {str(e)}")
 
 @app.get("/main_table", response_class=HTMLResponse)
 async def main_table():
@@ -129,38 +150,69 @@ async def main_table():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading files: {str(e)}")
 
-@app.get("/test_sql", status_code=status.HTTP_200_OK)
-async def test_sql(db:db_dependency):
-        all_tracks = db.query(models.Tracks).all()
+@app.post("/sorted")
+async def sorted_table(request: Request, db:db_dependency, sort_attribute: str = Form(...), order: str = Form(...)):
+        sorted_tracks = db.query(models.Tracks).all()
 
         # Create an empty DataFrame with the desired columns
-        df = pd.DataFrame(columns=['track_id', 'track_name', 'album_id', 'artist_id', 'genre'])
+        sorted_df = pd.DataFrame(columns=['track_id', 'track_name', 'album_id', 'artist_id', 'genre'])
 
         track_dfs = [pd.DataFrame({'track_id': track.track_id,
                                 'track_name': track.track_name,
                                 'album_id': track.album_id,
                                 'artist_id': track.artist_id,
-                                'genre': track.genre}, index=[0]) for track in all_tracks]
+                                'genre': track.genre}, index=[0]) for track in sorted_tracks]
 
-        df = pd.concat(track_dfs, ignore_index=True)
+        sorted_df = pd.concat(track_dfs, ignore_index=True)
 
-        ye = 3
-        foo = duckdb.query("SELECT * FROM df WHERE artist_id = " + str(ye)).df()
-        foo.to_html('./html_files/basic.html', index=False)
-        print(foo)
+        sort_applied = duckdb.query("SELECT * FROM sorted_df ORDER BY " + str(sort_attribute) + " " + str(order)).df()
 
-        with open('./html_files/basic.html', 'r') as f:
-                test = f.read()
+        sort_applied.to_html('./html_files/basic.html', index=False)
 
-        return HTMLResponse(content=test, status_code=200)
-
-"""
-# Opens .html files for rendering in various pages.
-with open('./html_files/index.html', 'r') as f:
-        root_html_content = f.read()
-
-# Root/landing page
-@app.get("/")
-async def root():
-        return HTMLResponse(content=root_html_content, status_code=200)
-"""
+        try:
+                # Read main.html
+                with open("./html_files/main.html", "r") as main_file:
+                        main_content = main_file.read()
+                
+                # Read basic.html
+                with open("./html_files/basic.html", "r") as basic_file:
+                        basic_content = basic_file.read()
+                
+                # Find the closing </body> tag and insert basic_content before it
+                merged_content = main_content.replace("</body>", f"""
+                <div class="data-content">
+                        {basic_content}
+                </div>
+                </body>""")
+                
+                return HTMLResponse(content=merged_content)
+            
+        except FileNotFoundError as e:
+                raise HTTPException(status_code=404, detail=f"File not found: {str(e)}")
+        except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Error reading files: {str(e)}")
+        
+@app.get("/playlist_report", response_class=HTMLResponse)
+async def playlist_report():
+    try:
+        # Read main.html
+        with open("./html_files/playlist_main.html", "r") as main_file:
+            main_content = main_file.read()
+        
+        # Read basic.html
+        with open("./html_files/playlist.html", "r") as basic_file:
+            basic_content = basic_file.read()
+            
+        # Find the closing </body> tag and insert basic_content before it
+        merged_content = main_content.replace("</body>", f"""
+            <div class="data-content">
+                {basic_content}
+            </div>
+        </body>""")
+            
+        return merged_content
+            
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=f"File not found: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reading files: {str(e)}")

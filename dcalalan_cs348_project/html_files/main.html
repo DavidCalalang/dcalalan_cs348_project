@@ -21,5 +21,25 @@
 </head>
 <body>
     <h1>Main table</h1>
+    <h2>Table is sorted by default by track_id, if desired, change order through the options below</h2>
+
+    <form method="POST" action="/sorted">
+        <select name="sort_attribute">
+          <option value="track_id">Track ID</option>
+          <option value="track_name">Track Name</option>
+          <option value="album_id">Album ID</option>
+          <option value="artist_id">Artist ID</option>
+          <option value="genre">Genre</option>
+        </select>
+
+        <select name="order">
+            <option value="ASC">Ascending</option>
+            <option value="DESC">Descending</option>
+        </select>
+
+        <input type="submit" value="Sort By...">
+    </form>
+
+    <a href="http://127.0.0.1:8000/playlist_report"><button>Access Playlist Report</button></a>
 </body>
 </html>
