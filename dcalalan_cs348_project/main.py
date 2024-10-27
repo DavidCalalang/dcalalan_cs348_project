@@ -52,32 +52,6 @@ def get_db():
                 db.close()
 
 db_dependency = Annotated[Session, Depends(get_db)]
-
-@app.post("/listeners/", status_code=status.HTTP_201_CREATED)
-async def create_listener(listener: ListenersBase, db: db_dependency):
-        db_listener = models.Listeners(**listener.dict())
-
-        db.add(db_listener)
-        db.commit()
-
-@app.get("/listeners/{user_id}", status_code=status.HTTP_200_OK)
-async def read_user(user_id: int, db:db_dependency):
-        user = db.query(models.Listeners).filter(models.Listeners.user_id == user_id).first()
-        if user is None:
-                raise HTTPException(status_code=404, detail="User not found")
-        else:
-                return user
-
-"""
-@app.get("/all_artists", status_code=status.HTTP_200_OK)
-async def list_all_artists(db:db_dependency):
-        all_artists = db.query(models.Artists).all()
-
-        for artist in all_artists:
-                print(artist.artist_name)
-
-        return {"data": all_artists}
-"""
         
 @app.get("/", status_code=status.HTTP_200_OK)
 async def list_all_tracks(db:db_dependency):
@@ -114,11 +88,13 @@ async def list_all_tracks(db:db_dependency):
 
         playlist_df.to_html('./html_files/playlist.html', index=False)
 
+        # Open root html page
         try:
                 with open('./html_files/root.html', 'r') as f:
                         root = f.read()
 
                 return HTMLResponse(content=root, status_code=200)
+                #return templates.TemplateResponse("root.html", {"all_playlists": all_playlists})
         
         except FileNotFoundError as e:
                 raise HTTPException(status_code=404, detail=f"File not found: {str(e)}")
@@ -193,19 +169,31 @@ async def sorted_table(request: Request, db:db_dependency, sort_attribute: str =
                 raise HTTPException(status_code=500, detail=f"Error reading files: {str(e)}")
         
 @app.get("/playlist_report", response_class=HTMLResponse)
-async def playlist_report():
+async def playlist_report(db:db_dependency):
+    all_playlists = db.query(models.Playlists).all()
+
     try:
-        # Read main.html
+        # Read playlist_main.html
         with open("./html_files/playlist_main.html", "r") as main_file:
             main_content = main_file.read()
         
-        # Read basic.html
+        # Read playlist.html
         with open("./html_files/playlist.html", "r") as basic_file:
             basic_content = basic_file.read()
+
+        dropdown_options = ""
+        for playlist in all_playlists:
+                dropdown_options += f"<option value='{playlist.playlist_id}'>{playlist.playlist_name}</option>"
             
         # Find the closing </body> tag and insert basic_content before it
         merged_content = main_content.replace("</body>", f"""
             <div class="data-content">
+                <form method="POST" action="/playlist_access">
+                        <select name="chosen_playlist_id">
+                        {dropdown_options}
+                        </select>
+                        <input type="submit" value="Access Playlist...">
+                </form>
                 {basic_content}
             </div>
         </body>""")
@@ -216,3 +204,57 @@ async def playlist_report():
         raise HTTPException(status_code=404, detail=f"File not found: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading files: {str(e)}")
+    
+@app.post("/playlist_access")
+async def playlist_access(request: Request, db:db_dependency, chosen_playlist_id: str = Form(...)):
+        all_playlists = db.query(models.Playlists).all()
+        chosen_playlist = db.query(models.Playlist_Tracks).filter_by(playlist_id=chosen_playlist_id).all()
+
+        # Create an empty DataFrame with the desired columns
+        playlist_df = pd.DataFrame(columns=['playlist_id', 'playlist_name', 'user_id'])
+
+        playlists_dfs = [pd.DataFrame({'playlist_id': playlist.playlist_id,
+                                'playlist_name': playlist.playlist_name,
+                                'user_id': playlist.user_id}, index=[0]) for playlist in all_playlists]
+
+        playlist_df = pd.concat(playlists_dfs, ignore_index=True)
+
+        playlist_df = duckdb.query("SELECT * FROM playlist_df WHERE playlist_id = " + chosen_playlist_id).df()
+
+        tmp = duckdb.query("SELECT playlist_name FROM playlist_df WHERE playlist_id = " + chosen_playlist_id).fetchone()
+        chosen_playlist_name = tmp[0]
+
+        if (not chosen_playlist):
+               chosen_playlist_df = pd.DataFrame(columns=['playlist_id', 'track_id'])
+
+        else:
+                chosen_playlist_df = pd.DataFrame(columns=['playlist_id', 'track_id'])
+                chosen_playlists_dfs = [pd.DataFrame({'playlist_id': playlist_track.playlist_id,
+                                        'track_id': playlist_track.track_id}, index=[0]) for playlist_track in chosen_playlist]
+                chosen_playlist_df = pd.concat(chosen_playlists_dfs, ignore_index=True)
+
+        chosen_playlist_df.to_html('./html_files/chosen_playlist.html', index=False)
+        
+        try:
+              # Read playlist_access.html
+                with open("./html_files/playlist_access.html", "r") as main_file:
+                        main_content = main_file.read()
+
+                # Read chosen_playlist.html
+                with open("./html_files/chosen_playlist.html", "r") as main_file:
+                        chosen_playlist_content = main_file.read()
+
+                # Find the closing </body> tag and insert basic_content before it
+                merged_content = main_content.replace("</body>", f"""
+                <div class="data-content">
+                        <h3>{chosen_playlist_name}</h3>
+                        {chosen_playlist_content}
+                </div>
+                </body>""")
+
+                return HTMLResponse(content=merged_content)
+
+        except FileNotFoundError as e:
+                raise HTTPException(status_code=404, detail=f"File not found: {str(e)}")
+        except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Error reading files: {str(e)}")
