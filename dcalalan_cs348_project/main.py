@@ -5,8 +5,7 @@ Run with `uvicorn main:app --reload`
 """
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, Form, Request
-from fastapi.responses import HTMLResponse
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Annotated
@@ -102,29 +101,98 @@ async def list_all_tracks(db:db_dependency):
                 raise HTTPException(status_code=500, detail=f"Error reading files: {str(e)}")
 
 @app.get("/main_table", response_class=HTMLResponse)
-async def main_table():
-    try:
-        # Read main.html
-        with open("./html_files/main.html", "r") as main_file:
-            main_content = main_file.read()
-        
-        # Read basic.html
-        with open("./html_files/basic.html", "r") as basic_file:
-            basic_content = basic_file.read()
-            
-        # Find the closing </body> tag and insert basic_content before it
-        merged_content = main_content.replace("</body>", f"""
-            <div class="data-content">
-                {basic_content}
-            </div>
-        </body>""")
-            
-        return merged_content
-            
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=f"File not found: {str(e)}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error reading files: {str(e)}")
+async def main_table(db:db_dependency):
+        all_albums = db.query(models.Albums).all()
+        all_artists = db.query(models.Artists).all()
+        all_genres = db.query(models.Genres).all()
+
+        try:
+                # Read main.html
+                with open("./html_files/main.html", "r") as main_file:
+                        main_content = main_file.read()
+                
+                # Read basic.html
+                with open("./html_files/basic.html", "r") as basic_file:
+                        basic_content = basic_file.read()
+
+                # Create dropdown options for albums
+                album_options = ""
+                for album in all_albums:
+                        album_options += f"<option value='{album.album_id}'>{album.album_name}</option>"
+                
+                # Create dropdown options for artists
+                artist_options = ""
+                for artist in all_artists:
+                        artist_options += f"<option value='{artist.artist_id}'>{artist.artist_name}</option>"
+
+                # Create dropdown options for genres
+                genre_options = ""
+                for genre in all_genres:
+                        genre_options += f"<option value='{genre.genre}'>{genre.genre}</option>"
+                
+                # Find the closing </body> tag and insert basic_content before it
+                merged_content = main_content.replace("</body>", f"""
+                <div class="data-content">
+                        <h3>For Artists: Add new track</h3>
+                        <form method="POST" action="/added_tracks">
+                                <label for="track_name">Track Name:</label>
+                                <input type="text" id="track_name" name="track_name">
+                                <select name="album_to_add_to">
+                                {album_options}
+                                </select>
+                                <select name="artist_to_add_to">
+                                {artist_options}
+                                </select>
+                                <select name="genre_to_add_to">
+                                {genre_options}
+                                </select>
+                                <input type="submit" value="Add Track...">
+                        </form>
+                                                      
+                        {basic_content}
+
+                </div>
+                </body>""")
+
+                return merged_content
+                
+        except FileNotFoundError as e:
+                raise HTTPException(status_code=404, detail=f"File not found: {str(e)}")
+        except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Error reading files: {str(e)}")
+
+@app.post("/added_tracks")
+async def added_tracks(request: Request, db:db_dependency, track_name: str = Form(...), album_to_add_to: str = Form(...), artist_to_add_to: str = Form(...),
+                        genre_to_add_to: str = Form(...)):
+       
+        try:
+                new_track = models.Tracks(track_name = track_name, album_id = album_to_add_to, artist_id = artist_to_add_to, genre = genre_to_add_to)
+
+                db.add(new_track)
+                db.commit()
+                db.refresh(new_track)
+
+                all_tracks = db.query(models.Tracks).all()
+
+                # Create an empty DataFrame with the desired columns
+                df = pd.DataFrame(columns=['track_id', 'track_name', 'album_id', 'artist_id', 'genre'])
+
+                track_dfs = [pd.DataFrame({'track_id': track.track_id,
+                                        'track_name': track.track_name,
+                                        'album_id': track.album_id,
+                                        'artist_id': track.artist_id,
+                                        'genre': track.genre}, index=[0]) for track in all_tracks]
+
+                df = pd.concat(track_dfs, ignore_index=True)
+
+                df.to_html('./html_files/basic.html', index=False)
+
+                return RedirectResponse(url="/main_table", status_code=status.HTTP_303_SEE_OTHER)
+
+        except Exception as e:
+                db.rollback()
+                raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/sorted")
 async def sorted_table(request: Request, db:db_dependency, sort_attribute: str = Form(...), order: str = Form(...)):
@@ -145,28 +213,7 @@ async def sorted_table(request: Request, db:db_dependency, sort_attribute: str =
 
         sort_applied.to_html('./html_files/basic.html', index=False)
 
-        try:
-                # Read main.html
-                with open("./html_files/main.html", "r") as main_file:
-                        main_content = main_file.read()
-                
-                # Read basic.html
-                with open("./html_files/basic.html", "r") as basic_file:
-                        basic_content = basic_file.read()
-                
-                # Find the closing </body> tag and insert basic_content before it
-                merged_content = main_content.replace("</body>", f"""
-                <div class="data-content">
-                        {basic_content}
-                </div>
-                </body>""")
-                
-                return HTMLResponse(content=merged_content)
-            
-        except FileNotFoundError as e:
-                raise HTTPException(status_code=404, detail=f"File not found: {str(e)}")
-        except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Error reading files: {str(e)}")
+        return RedirectResponse(url="/main_table", status_code=status.HTTP_303_SEE_OTHER)
         
 @app.get("/playlist_report", response_class=HTMLResponse)
 async def playlist_report(db:db_dependency):
