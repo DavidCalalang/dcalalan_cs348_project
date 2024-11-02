@@ -102,6 +102,7 @@ async def list_all_tracks(db:db_dependency):
 
 @app.get("/main_table", response_class=HTMLResponse)
 async def main_table(db:db_dependency):
+        all_tracks = db.query(models.Tracks).all()
         all_albums = db.query(models.Albums).all()
         all_artists = db.query(models.Artists).all()
         all_genres = db.query(models.Genres).all()
@@ -114,6 +115,11 @@ async def main_table(db:db_dependency):
                 # Read basic.html
                 with open("./html_files/basic.html", "r") as basic_file:
                         basic_content = basic_file.read()
+
+                # Create dropdown options for tracks
+                track_options = ""
+                for track in all_tracks:
+                        track_options += f"<option value='{track.track_id}'>{track.track_name}</option>"
 
                 # Create dropdown options for albums
                 album_options = ""
@@ -133,7 +139,7 @@ async def main_table(db:db_dependency):
                 # Find the closing </body> tag and insert basic_content before it
                 merged_content = main_content.replace("</body>", f"""
                 <div class="data-content">
-                        <h3>For Artists: Add new track</h3>
+                        <h3>For Artists: Add to database</h3>
                         <form method="POST" action="/added_tracks">
                                 <label for="track_name">Track Name:</label>
                                 <input type="text" id="track_name" name="track_name">
@@ -147,6 +153,30 @@ async def main_table(db:db_dependency):
                                 {genre_options}
                                 </select>
                                 <input type="submit" value="Add Track...">
+                        </form>
+
+                        <form method="POST" action="/added_album">
+                                <label for="album_name">Album Name:</label>
+                                <input type="text" id="album_name" name="album_name">
+                                <select name="artist_to_add_to">
+                                {artist_options}
+                                </select>
+                                <input type="submit" value="Add Album...">
+                        </form>
+
+                        <form method="POST" action="/added_artist">
+                                <label for="artist_name">Artist Name:</label>
+                                <input type="text" id="artist_name" name="artist_name">
+                                <input type="submit" value="Add Artist...">
+                        </form>
+
+                        <h3>For Artists: Delete from database</h3>
+                        <form method="POST" action="/delete_track">
+                                <label for="track_to_delete">Track to Delete:</label>
+                                <select name="track_to_delete" id="track_to_delete">
+                                {track_options}
+                                </select>
+                                <input type="submit" value="Delete Track">
                         </form>
                                                       
                         {basic_content}
@@ -171,6 +201,69 @@ async def added_tracks(request: Request, db:db_dependency, track_name: str = For
                 db.add(new_track)
                 db.commit()
                 db.refresh(new_track)
+
+                all_tracks = db.query(models.Tracks).all()
+
+                # Create an empty DataFrame with the desired columns
+                df = pd.DataFrame(columns=['track_id', 'track_name', 'album_id', 'artist_id', 'genre'])
+
+                track_dfs = [pd.DataFrame({'track_id': track.track_id,
+                                        'track_name': track.track_name,
+                                        'album_id': track.album_id,
+                                        'artist_id': track.artist_id,
+                                        'genre': track.genre}, index=[0]) for track in all_tracks]
+
+                df = pd.concat(track_dfs, ignore_index=True)
+
+                df.to_html('./html_files/basic.html', index=False)
+
+                return RedirectResponse(url="/main_table", status_code=status.HTTP_303_SEE_OTHER)
+
+        except Exception as e:
+                db.rollback()
+                raise HTTPException(status_code=500, detail=str(e))
+        
+@app.post("/added_album")
+async def added_album(request: Request, db:db_dependency, album_name: str = Form(...), artist_to_add_to: str = Form(...)):
+       
+        try:
+                new_album = models.Albums(album_name = album_name, artist_id = artist_to_add_to)
+
+                db.add(new_album)
+                db.commit()
+                db.refresh(new_album)
+
+                return RedirectResponse(url="/main_table", status_code=status.HTTP_303_SEE_OTHER)
+
+        except Exception as e:
+                db.rollback()
+                raise HTTPException(status_code=500, detail=str(e))
+        
+@app.post("/added_artist")
+async def added_artist(request: Request, db:db_dependency, artist_name: str = Form(...)):
+       
+        try:
+                new_artist = models.Artists(artist_name = artist_name)
+
+                db.add(new_artist)
+                db.commit()
+                db.refresh(new_artist)
+
+                return RedirectResponse(url="/main_table", status_code=status.HTTP_303_SEE_OTHER)
+
+        except Exception as e:
+                db.rollback()
+                raise HTTPException(status_code=500, detail=str(e))
+        
+@app.post("/delete_track")
+async def delete_track(request: Request, db:db_dependency, track_to_delete: str = Form(...)):
+       
+        try:
+                track_to_delete = db.query(models.Tracks).filter(models.Tracks.track_id == track_to_delete).first()
+                #print(track_to_delete)
+
+                db.delete(track_to_delete)
+                db.commit()
 
                 all_tracks = db.query(models.Tracks).all()
 
