@@ -12,6 +12,8 @@ from typing import Annotated
 import models
 from database import engine, session_local
 from sqlalchemy.orm import Session
+from sqlalchemy import text
+import sqlalchemy
 import pandas as pd
 import duckdb
 
@@ -106,6 +108,8 @@ async def main_table(db:db_dependency):
         all_albums = db.query(models.Albums).all()
         all_artists = db.query(models.Artists).all()
         all_genres = db.query(models.Genres).all()
+        all_playlists = db.query(models.Playlists).all()
+        all_listeners = db.query(models.Listeners).all()
 
         try:
                 # Read main.html
@@ -121,6 +125,10 @@ async def main_table(db:db_dependency):
                 for track in all_tracks:
                         track_options += f"<option value='{track.track_id}'>{track.track_name}</option>"
 
+                track_id_options = ""
+                for track in all_tracks:
+                        track_id_options += f"<option value='{track.track_id}'>{track.track_id}</option>"
+
                 # Create dropdown options for albums
                 album_options = ""
                 for album in all_albums:
@@ -135,6 +143,14 @@ async def main_table(db:db_dependency):
                 genre_options = ""
                 for genre in all_genres:
                         genre_options += f"<option value='{genre.genre}'>{genre.genre}</option>"
+
+                playlist_options = ""
+                for playlist in all_playlists:
+                        playlist_options += f"<option value='{playlist.playlist_id}'>{playlist.playlist_name}</option>"
+
+                listener_options = ""
+                for listener in all_listeners:
+                        listener_options += f"<option value='{listener.user_id}'>{playlist.user_id}</option>"
                 
                 # Find the closing </body> tag and insert basic_content before it
                 merged_content = main_content.replace("</body>", f"""
@@ -178,8 +194,55 @@ async def main_table(db:db_dependency):
                                 </select>
                                 <input type="submit" value="Delete Track">
                         </form>
+
+                        <h3>For Artists: Update from database</h3>
+                        <form method="POST" action="/update_track">
+                                <label for="track_to_update">Track to Update:</label>
+                                <select name="track_to_update" id="track_to_update">
+                                {track_id_options}
+                                </select>
+                                <label for="new_track_name">New Track Name:</label>
+                                <input type="text" id="new_track_name" name="new_track_name">
+                                <label for="new_album_id">New Album ID:</label>
+                                <input type="text" id="new_album_id" name="new_album_id">
+                                <label for="new_genre">New Genre:</label>
+                                <select name="new_genre" id="new_genre">
+                                        <option value="">Select Genre</option>
+                                        {genre_options}
+                                </select>
+                                <input type="submit" value="Update Track">
+                        </form>
+
+                        <h3>For Users: Add New Playlist</h3>
+                        <form method="POST" action="/added_playlist">
+                                <label for="playlist_name">Playlist Name:</label>
+                                <input type="text" id="playlist_name" name="playlist_name">
+                                <label for="user_id">User ID:</label>
+                                <select name="user_id">
+                                <option value="">Select User</option>
+                                {listener_options}
+                                </select>
+                                <input type="submit" value="Add Playlist...">
+                        </form>
+
+                        <h3>For Users: Add to Playlist</h3>
+                        <form method="POST" action="/added_to_playlist">
+                                <label for="playlist_name">Playlist Name:</label>
+                                <select name="playlist_to_add_to">
+                                {playlist_options}
+                                </select>
+                                <label for="track">Select Track:</label>
+                                <select name="track" id="track">
+                                        <option value="">Select Track</option>
+                                        {track_options}
+                                </select>
+                                <input type="submit" value="Add to Playlist...">
+                        </form>
                                                       
                         {basic_content}
+
+                        <h3>For Artists: View report</h3>
+                        <a href="/report" class="btn btn-primary">View report</a>
 
                 </div>
                 </body>""")
@@ -190,6 +253,78 @@ async def main_table(db:db_dependency):
                 raise HTTPException(status_code=404, detail=f"File not found: {str(e)}")
         except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error reading files: {str(e)}")
+
+@app.get("/report")
+async def report(request: Request, db:db_dependency):
+        try:
+                result = db.execute(sqlalchemy.sql.text('CALL TopTracksPerArtist()'))
+
+                df = pd.DataFrame(columns=['artist_name', 'most_popular_track', 'playlist_count'])
+
+                for artist, track, count in result.fetchall():
+                        df = df._append({'artist_name': artist, 'most_popular_track': track, 'playlist_count': count}, ignore_index=True)
+
+                print(df)
+
+                html_table = df.to_html(index=False)
+
+                # Create HTML response
+                html_content = f"""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                <title>Report</title>
+                </head>
+                <body>
+                <h1>Report</h1>
+                <h2>This report shows each artists' most popular track and the number of times it was added to a playlist.</h2>
+                <h2>Multiple instances of an artist indicates a tie in their most popular track.</h2>
+                <table>
+                        {html_table}
+                </table>
+                <br>
+                <a href="/main_table">Return to Main Table</a> 
+                </body>
+                </html>
+                """
+
+                return HTMLResponse(content=html_content)
+        except Exception as e:
+                db.rollback()
+                raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/added_playlist")
+async def added_playlist(request: Request, db:db_dependency, playlist_name: str = Form(...), user_id: str = Form(...)):
+
+        try:
+                new_playlist = models.Playlists(playlist_name = playlist_name, user_id = user_id)
+
+                db.add(new_playlist)
+                db.commit()
+                db.refresh(new_playlist)
+
+                return RedirectResponse(url="/main_table", status_code=status.HTTP_303_SEE_OTHER)
+
+        except Exception as e:
+                db.rollback()
+                raise HTTPException(status_code=500, detail=str(e))
+        
+@app.post("/added_to_playlist")
+async def added_to_playlist(request: Request, db:db_dependency, playlist_to_add_to: str = Form(...), track: str = Form(...)):
+
+        try:
+                new_playlist_track = models.Playlist_Tracks(playlist_id = playlist_to_add_to, track_id = track)
+
+                db.add(new_playlist_track)
+                db.commit()
+                db.refresh(new_playlist_track)
+
+                return RedirectResponse(url="/main_table", status_code=status.HTTP_303_SEE_OTHER)
+
+        except Exception as e:
+                db.rollback()
+                raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/added_tracks")
 async def added_tracks(request: Request, db:db_dependency, track_name: str = Form(...), album_to_add_to: str = Form(...), artist_to_add_to: str = Form(...),
@@ -285,6 +420,47 @@ async def delete_track(request: Request, db:db_dependency, track_to_delete: str 
         except Exception as e:
                 db.rollback()
                 raise HTTPException(status_code=500, detail=str(e))
+        
+@app.post("/update_track")
+async def update_track(request: Request, db:db_dependency,
+                       track_to_update: str = Form(...),
+                       new_track_name: str = Form(None),
+                       new_album_id: str = Form(None),
+                       new_genre: str = Form(None)):
+
+        try:
+
+                track_to_update = db.query(models.Tracks).filter(models.Tracks.track_id == track_to_update).first()
+
+                if new_track_name:
+                        track_to_update.track_name = new_track_name
+                if new_album_id:
+                        track_to_update.album_id = new_album_id
+                if new_genre:
+                        track_to_update.genre = new_genre
+                db.commit() 
+
+                all_tracks = db.query(models.Tracks).all()
+
+                # Create an empty DataFrame with the desired columns
+                df = pd.DataFrame(columns=['track_id', 'track_name', 'album_id', 'artist_id', 'genre'])
+
+                track_dfs = [pd.DataFrame({'track_id': track.track_id,
+                                        'track_name': track.track_name,
+                                        'album_id': track.album_id,
+                                        'artist_id': track.artist_id,
+                                        'genre': track.genre}, index=[0]) for track in all_tracks]
+
+                df = pd.concat(track_dfs, ignore_index=True)
+
+                df.to_html('./html_files/basic.html', index=False)
+
+
+                return RedirectResponse(url="/main_table", status_code=status.HTTP_303_SEE_OTHER)
+
+        except Exception as e:
+                db.rollback()
+                raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/sorted")
@@ -293,7 +469,7 @@ async def sorted_table(request: Request, db:db_dependency, sort_attribute: str =
 
         # Create an empty DataFrame with the desired columns
         sorted_df = pd.DataFrame(columns=['track_id', 'track_name', 'album_id', 'artist_id', 'genre'])
-
+ 
         track_dfs = [pd.DataFrame({'track_id': track.track_id,
                                 'track_name': track.track_name,
                                 'album_id': track.album_id,
