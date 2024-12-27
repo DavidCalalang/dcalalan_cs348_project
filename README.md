@@ -16,6 +16,6 @@ Be sure to check out the full [demo video](https://youtu.be/FVRNfCCP-qc) that I 
 
 Some areas for improvement within this project (as touched on in the demo video) include...
 
-• Improved dynamic integration of user input into html values (Jinja2).
-• Implementing a refresh timer so that table values are periodically updated in cases of multiple users.
-• Possibly integrate a NoSQL database for scalability.
+• Improved dynamic integration of user input into html values (Jinja2).  
+• Implementing a refresh timer so that table values are periodically updated in cases of multiple users.  
+• Possibly integrate a NoSQL database for scalability.  
